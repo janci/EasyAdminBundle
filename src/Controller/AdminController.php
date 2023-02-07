@@ -21,7 +21,10 @@ use EasyCorp\Bundle\EasyAdminBundle\Exception\NoEntitiesConfiguredException;
 use EasyCorp\Bundle\EasyAdminBundle\Exception\UndefinedEntityException;
 use EasyCorp\Bundle\EasyAdminBundle\Form\Util\LegacyFormHelper;
 use Pagerfanta\Pagerfanta;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use EasyCorp\Bundle\EasyAdminBundle\DependencyInjection\ContainerWrapper;
+use Psr\Container\ContainerInterface;
+use ReflectionObject;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Form\Form;
 use Symfony\Component\Form\FormBuilder;
@@ -31,15 +34,17 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\HttpKernel;
 use Symfony\Component\PropertyAccess\PropertyAccess;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Contracts\Service\ServiceLocatorTrait;
 
 /**
  * The controller used to render all the default EasyAdmin actions.
  *
  * @author Javier Eguiluz <javier.eguiluz@gmail.com>
  */
-class AdminController extends Controller
+class AdminController extends AbstractController
 {
     /** @var array The full configuration of the entire backend */
     protected $config;
@@ -49,6 +54,9 @@ class AdminController extends Controller
     protected $request;
     /** @var EntityManager The Doctrine entity manager for the current entity */
     protected $em;
+
+    /** @var ContainerWrapper */
+    private $wrappedContainer;
 
     /**
      * @Route("/", name="easyadmin")
@@ -136,7 +144,7 @@ class AdminController extends Controller
         $subject = isset($arguments['paginator']) ? $arguments['paginator'] : $arguments['entity'];
         $event = new GenericEvent($subject, $arguments);
 
-        $this->get('event_dispatcher')->dispatch($eventName, $event);
+        $this->get('event_dispatcher')->dispatch($event, $eventName);
     }
 
     /**
@@ -893,6 +901,26 @@ class AdminController extends Controller
     protected function renderTemplate($actionName, $templatePath, array $parameters = array())
     {
         return $this->render($templatePath, $parameters);
+    }
+
+    protected function get(string $id): object
+    {
+        return $this->getWrappedContainer()->getOrPrivate($id);
+    }
+
+    private function getWrappedContainer(): ContainerWrapper
+    {
+        if (isset($this->wrappedContainer))
+        {
+            return $this->wrappedContainer;
+        }
+
+        $reflection = new \ReflectionClass(\Symfony\Component\DependencyInjection\ServiceLocator::class);
+        $serviceLocatorService = $reflection->getProperty('container');
+        $serviceLocatorService->setAccessible(true); // <--- you set the property to public before you read the value
+
+        $diService = $serviceLocatorService->getValue($this->container);
+        return $this->wrappedContainer = new ContainerWrapper($diService);
     }
 }
 
